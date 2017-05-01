@@ -146,20 +146,30 @@ compatibleSimpleExpr (InputExample p1 p2 input output) str =
 generateSubstring :: TknSeq -> TknSeq -> [SimpleExpr]
 generateSubstring input output = SubStr <$> y1 <*> y2
   where
-    allMatches = [3] -- the starting positions of all matches of output in input
-    y1 = allMatches >>= generatePosition input
-    y2 = allMatches >>= generatePosition input . (+ length output)
+    y1 = allMatches input output >>= generatePosition input
+    y2 = allMatches input output >>= generatePosition input . (+ length output)
+
+-- the starting positions of all matches of output in input
+allMatches :: (Eq a) => [a] -> [a] -> [Int]
+allMatches input output = map fst $ filter (snd . fmap (isPrefixOf output)) (zip [0..] (tails input))
+
+xthMatchIn :: TknSeq -> TknSeq -> TknSeq -> Int -> Maybe Int
+xthMatchIn input srchPre srchPost posInInput =
+  elemIndex
+    (posInInput - length (filter (/= EmptyToken) srchPre))
+    (allMatches input (filter (/= EmptyToken) (srchPre ++ srchPost)))
 
 generatePosition :: TknSeq -> Int -> [PosExpr]
 generatePosition s k = concatMap createPos combinations
   where
     (preTxt, postTxt) = splitAt k s
-    preTokens = take 3 $ (reverse . tails) preTxt
-    postTokens = take 3 $ (map reverse . reverse . tails . reverse) postTxt
+    preTokens = take 3 $ (reverse . tknTails) preTxt
+    postTokens = take 3 $ (map reverse . reverse . tknTails . reverse) postTxt
     combinations = filter (\(a, b) -> a /= [EmptyToken] || b /= [EmptyToken]) $ (,) <$> preTokens <*> postTokens
-    matchesInS x k' = (0,0) -- (cth match, total matches)
-    positions (c, c') = [c, -(c' - c + 1)]
-    createPos (a,b) = map (Pos a b) (positions $ matchesInS (a ++ b) k)
+    matchesInS pr ps k' = (xthMatchIn s pr ps k', length $ allMatches s (pr ++ ps)) -- (cth match, total matches)
+    positions (Just c, c') = [c, -(c' - c)]
+    positions (Nothing, _) = []
+    createPos (a,b) = map (Pos a b) (positions $ matchesInS a b k)
 
 data VSA a = Leaf a
              | Union (VSA a) (VSA a)
