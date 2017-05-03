@@ -34,9 +34,9 @@ guarded :: (Alternative f) => a -> Bool -> f a
 guarded a b = const a <$> guard b
 
 isPrePost :: TknSeq -> TknSeq -> (TknSeq, TknSeq) -> Bool
-isPrePost [EmptyToken] [EmptyToken] _ = True
-isPrePost [EmptyToken] post (_, suffix) = post `isPrefixOf` suffix
-isPrePost pref [EmptyToken] (prefix, _) = pref `isSuffixOf` prefix
+isPrePost [] [] _ = True
+isPrePost [] post (_, suffix) = post `isPrefixOf` suffix
+isPrePost pref [] (prefix, _) = pref `isSuffixOf` prefix
 isPrePost pref post (prefix, suffix) = isSuffixOf pref prefix && isPrefixOf post suffix
 
 posIndex :: PosExpr -> TknSeq -> Maybe Int
@@ -73,6 +73,24 @@ intersectDag dag1 dag2 = simplified
     xnodes = lastNode dag1 * lastNode dag2
     xdag = (,) <$> dag1 <*> dag2
     simplified = map (uncurry (intersectEdge xnodes)) xdag
+
+-- remove all edges which cannot reach the end position
+-- or cannot be reached from the starting position
+trimDag :: Dag -> Dag
+trimDag dag = filter (\(a,b,_) -> elem (a,b) (reachableNodesStable nodesDag)) dag
+  where
+    nodesDag = map (\(a,b,_) -> (a,b)) dag
+    reachableNodesStable = converge (==) . iterate (reachableNodes (lastNode dag))
+
+converge :: (a -> a -> Bool) -> [a] -> a
+converge p (x:ys@(y:_))
+  | p x y     = y
+  | otherwise = converge p ys
+
+reachableNodes :: Int -> [(Int, Int)] -> [(Int, Int)]
+reachableNodes lastN allNodes = filter
+  (\(a,b) -> ((a == 0) || elem b (map fst allNodes)) && (elem a (map snd allNodes) || (b == lastN)))
+  allNodes
 
 intersectEdge :: Int -> Edge -> Edge -> Edge
 intersectEdge x (s, t, expr) (s', t', expr') =
@@ -134,14 +152,14 @@ creationGraph ex@(InputExample p1 p2 input output) =
   CreationGraph nodes edges
     where
       nodes = zip [0..] output
-      edges = [(i1, i2, compatibleSimpleExpr ex (slice i1 i2 output))
+      edges = [(i1, i2, generateStr ex (slice i1 i2 output))
                 | (i1, node1):rest <- tails nodes, (i2, node2) <- rest]
 
-compatibleSimpleExpr :: InputExample -> TknSeq -> [SimpleExpr]
-compatibleSimpleExpr (InputExample p1 p2 input output) str =
-  [ConstStr str]
+generateStr :: InputExample -> TknSeq -> [SimpleExpr]
+generateStr (InputExample p1 p2 input output) str =
+  [ConstStr str] ++ generateSubstring text str
   where
-    (before, (text, after)) = fmap (splitAt p2) (splitAt p1 input)
+    (before, (text, after)) = fmap (splitAt (p2 - p1)) (splitAt p1 input)
 
 generateSubstring :: TknSeq -> TknSeq -> [SimpleExpr]
 generateSubstring input output = SubStr <$> y1 <*> y2
@@ -156,8 +174,8 @@ allMatches input output = map fst $ filter (snd . fmap (isPrefixOf output)) (zip
 xthMatchIn :: TknSeq -> TknSeq -> TknSeq -> Int -> Maybe Int
 xthMatchIn input srchPre srchPost posInInput =
   elemIndex
-    (posInInput - length (filter (/= EmptyToken) srchPre))
-    (allMatches input (filter (/= EmptyToken) (srchPre ++ srchPost)))
+    (posInInput - length srchPre)
+    (allMatches input (srchPre ++ srchPost))
 
 generatePosition :: TknSeq -> Int -> [PosExpr]
 generatePosition s k = concatMap createPos combinations
@@ -165,7 +183,7 @@ generatePosition s k = concatMap createPos combinations
     (preTxt, postTxt) = splitAt k s
     preTokens = take 3 $ (reverse . tknTails) preTxt
     postTokens = take 3 $ (map reverse . reverse . tknTails . reverse) postTxt
-    combinations = filter (\(a, b) -> a /= [EmptyToken] || b /= [EmptyToken]) $ (,) <$> preTokens <*> postTokens
+    combinations = filter (\(a, b) -> a /= emptyToken || b /= emptyToken) $ (,) <$> preTokens <*> postTokens
     matchesInS pr ps k' = (xthMatchIn s pr ps k', length $ allMatches s (pr ++ ps)) -- (cth match, total matches)
     positions (Just c, c') = [c, -(c' - c)]
     positions (Nothing, _) = []
