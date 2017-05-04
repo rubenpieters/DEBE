@@ -21,7 +21,6 @@ spec = do
     it "should pass case with empty token" $ do
       let input = [AZToken, NumToken, AZToken]
       posIndex (Pos [] [NumToken] 0) input `shouldBe` Just 1
-  describe "posIndex" $ do
-    it "should work in case with negative CPos" $ do
+    it "should pass case with negative CPos" $ do
       let str = [AZToken, SpecialToken, AZToken, SpecialToken, AZToken, SpecialToken]
       posIndex (Pos [AZToken] [SpecialToken] (-1)) str `shouldBe` Just 5
