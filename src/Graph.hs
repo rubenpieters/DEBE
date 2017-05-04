@@ -40,10 +40,16 @@ isPrePost pref [] (prefix, _) = pref `isSuffixOf` prefix
 isPrePost pref post (prefix, suffix) = isSuffixOf pref prefix && isPrefixOf post suffix
 
 posIndex :: PosExpr -> TknSeq -> Maybe Int
-posIndex (CPos i) str = guarded i (i > 0 && i <= length str)
-posIndex (Pos pref post x) str = findIndices (isPrePost pref post) positions ^? element x
+posIndex (CPos i) str | i >= 0 = guarded i (i <= length str)
+posIndex (CPos i) str | i < 0 = guarded (length str + i) (-i <= length str)
+posIndex (Pos pref post x) str | x >= 0 = foundPositions ^? element x
   where
     positions = zip (inits str) (tails str)
+    foundPositions = findIndices (isPrePost pref post) positions
+posIndex (Pos pref post x) str | x < 0 = foundPositions ^? element (length foundPositions + x)
+  where
+    positions = zip (inits str) (tails str)
+    foundPositions = findIndices (isPrePost pref post) positions
 
 evalSimple :: SimpleExpr -> TknSeq -> Maybe TknSeq
 evalSimple (ConstStr x) _ = pure x
