@@ -9,56 +9,57 @@ import Data.Maybe
 
 import Token
 
-data InputExample = InputExample
+data InputExample t = InputExample
                  { _pos1 :: Int
                  , _pos2 :: Int
-                 , _inputText :: TknSeq
-                 , _outputEx :: TknSeq
+                 , _inputText :: ParsedTknSeq t
+                 , _outputEx :: String
                } deriving (Show, Eq)
 
-data SimpleExpr = ConstStr TknSeq
-                | SubStr PosExpr PosExpr
+data SimpleExpr t = ConstStr String
+                | SubStr (PosExpr t) (PosExpr t)
                 deriving (Show, Eq)
 
-data ConcatenateExpr = Concatenate [SimpleExpr]
+data ConcatenateExpr t = Concatenate [SimpleExpr t]
                      deriving (Show, Eq)
 
-data LoopExpr = Loop (Int -> Dag)
+data LoopExpr t = Loop (Int -> Dag t)
               --deriving (Show, Eq)
 
-data PosExpr = CPos Int
-             | Pos TknSeq TknSeq Int
+data PosExpr t = CPos Int
+             | Pos (QueryTknSeq t) (QueryTknSeq t) Int
              deriving (Show, Eq)
 
 guarded :: (Alternative f) => a -> Bool -> f a
 guarded a b = const a <$> guard b
 
-isPrePost :: TknSeq -> TknSeq -> (TknSeq, TknSeq) -> Bool
-isPrePost [] [] _ = True
-isPrePost [] post (_, suffix) = post `isPrefixOf` suffix
-isPrePost pref [] (prefix, _) = pref `isSuffixOf` prefix
-isPrePost pref post (prefix, suffix) = isSuffixOf pref prefix && isPrefixOf post suffix
+isPrePost :: (Eq t) => QueryTknSeq t -> QueryTknSeq t -> ([t], [t]) -> Bool
+isPrePost preTkns postTkns (prefix, suffix) =
+  tknMatchPost preTkns prefix && tknMatchPre postTkns suffix
 
-posIndex :: PosExpr -> TknSeq -> Maybe Int
-posIndex (CPos i) str | i >= 0 = guarded i (i <= length str)
-posIndex (CPos i) str | i < 0 = guarded (length str + i) (-i <= length str)
-posIndex (Pos pref post x) str | x >= 0 = foundPositions ^? element x
-  where
-    positions = zip (inits str) (tails str)
-    foundPositions = findIndices (isPrePost pref post) positions
-posIndex (Pos pref post x) str | x < 0 = foundPositions ^? element (length foundPositions + x)
-  where
-    positions = zip (inits str) (tails str)
-    foundPositions = findIndices (isPrePost pref post) positions
+matchesPrePost :: (Eq t) => QueryTknSeq t -> QueryTknSeq t -> [t] -> [Int]
+matchesPrePost pref post tkns = findIndices (isPrePost pref post) positions
+  where positions = zip (inits tkns) (tails tkns)
 
-evalSimple :: SimpleExpr -> TknSeq -> Maybe TknSeq
+posIndex :: (Eq t) => PosExpr t -> [t] -> Maybe Int
+posIndex (CPos i) tkns | i >= 0 = guarded i (i <= length tkns)
+posIndex (CPos i) tkns = guarded (length tkns + i) (-i <= length tkns)
+posIndex (Pos pref post x) tkns | x >= 0 = foundPositions ^? element x
+  where foundPositions = matchesPrePost pref post tkns
+posIndex (Pos pref post x) tkns = foundPositions ^? element (length foundPositions + x)
+  where foundPositions = matchesPrePost pref post tkns
+
+evalSimple :: (Eq t) => SimpleExpr t -> ParsedTknSeq t -> Maybe String
 evalSimple (ConstStr x) _ = pure x
-evalSimple (SubStr posE1 posE2) str = slice <$> pos1 <*> pos2 <*> pure str
+evalSimple (SubStr posE1 posE2) parsed = fmap concat slicedTkns
   where
-    pos1 = posIndex posE1 str
-    pos2 = posIndex posE2 str
+    tkns = map fst parsed
+    strs = map snd parsed
+    pos1 = posIndex posE1 tkns
+    pos2 = posIndex posE2 tkns
+    slicedTkns = slice <$> pos1 <*> pos2 <*> pure strs
 
-intersectPos :: PosExpr -> PosExpr -> Maybe PosExpr
+intersectPos :: (Eq t) => PosExpr t -> PosExpr t -> Maybe (PosExpr t)
 intersectPos (CPos k1) (CPos k2) = guarded (CPos k1) (k1 == k2)
 intersectPos (Pos r1 r2 c) (Pos r1' r2' c') =
   Pos <$> t1 <*> t2 <*> guarded c (c == c')
@@ -67,13 +68,13 @@ intersectPos (Pos r1 r2 c) (Pos r1' r2' c') =
     t2 = zipWithM tknIntersect r2 r2'
 intersectPos _ _ = Nothing
 
-intersectSimple :: SimpleExpr -> SimpleExpr -> Maybe SimpleExpr
+intersectSimple :: (Eq t) => SimpleExpr t -> SimpleExpr t -> Maybe (SimpleExpr t)
 intersectSimple (ConstStr s1) (ConstStr s2) = guarded (ConstStr s1) (s1 == s2)
 intersectSimple (SubStr p1 p2) (SubStr p1' p2') =
   SubStr <$> intersectPos p1 p1' <*> intersectPos p2 p2'
 intersectSimple _ _ = Nothing
 
-intersectDag :: Dag -> Dag -> Dag
+intersectDag :: (Eq t) => Dag t -> Dag t -> Dag t
 intersectDag dag1 dag2 = simplified
   where
     xnodes = lastNode dag1 * lastNode dag2
@@ -82,7 +83,7 @@ intersectDag dag1 dag2 = simplified
 
 -- remove all edges which cannot reach the end position
 -- or cannot be reached from the starting position
-trimDag :: Dag -> Dag
+trimDag :: Dag t -> Dag t
 trimDag dag = filter (\(a,b,_) -> elem (a,b) (reachableNodesStable nodesDag)) dag
   where
     nodesDag = map (\(a,b,_) -> (a,b)) dag
@@ -98,23 +99,23 @@ reachableNodes lastN allNodes = filter
   (\(a,b) -> ((a == 0) || elem b (map fst allNodes)) && (elem a (map snd allNodes) || (b == lastN)))
   allNodes
 
-intersectEdge :: Int -> Edge -> Edge -> Edge
+intersectEdge :: (Eq t) => Int -> Edge t -> Edge t -> Edge t
 intersectEdge x (s, t, expr) (s', t', expr') =
   (s * x + s', t * x + t', catMaybes intersectedExpr)
     where
       xprodExpr = (,) <$> expr <*> expr'
       intersectedExpr = map (uncurry intersectSimple) xprodExpr
 
-evalConcat :: ConcatenateExpr -> TknSeq -> TknSeq
+evalConcat :: (Eq t) => ConcatenateExpr t -> ParsedTknSeq t -> String
 evalConcat (Concatenate l) str = join $ mapMaybe (`evalSimple` str) l
 
-evalDag :: Dag -> TknSeq -> [TknSeq]
+evalDag :: (Eq t) => Dag t -> ParsedTknSeq t -> [String]
 evalDag dag str = allExprEvals
   where
     allExprs = map snd $ allPaths dag
     allExprEvals = map (`evalConcat` str) allExprs
 
-evalLoop :: LoopExpr -> TknSeq -> [TknSeq]
+evalLoop :: (Eq t) => LoopExpr t -> ParsedTknSeq t -> [String]
 evalLoop (Loop dagF) str = crossJoined
   where
     dags = map (fmap snd . allPaths . dagF) [0..]
@@ -122,10 +123,10 @@ evalLoop (Loop dagF) str = crossJoined
     -- probably should filter all "" away before doing the sequence
     crossJoined = (map join . sequence) evaledExprs
 
-allPaths :: Dag -> [(Int, ConcatenateExpr)]
+allPaths :: (Eq t) => Dag t -> [(Int, ConcatenateExpr t)]
 allPaths dag = allPaths' (lastNode dag) dag (0, Concatenate [])
 
-allPaths' :: Int -> Dag -> (Int, ConcatenateExpr) -> [(Int, ConcatenateExpr)]
+allPaths' :: (Eq t) => Int -> Dag t -> (Int, ConcatenateExpr t) -> [(Int, ConcatenateExpr t)]
 allPaths' lim _ n@(src, _) | src == lim = [n]
 allPaths' lim dag (src, Concatenate expr) = nextNodes' >>= allPaths' lim dag
   where
@@ -134,26 +135,22 @@ allPaths' lim dag (src, Concatenate expr) = nextNodes' >>= allPaths' lim dag
       (_, nextTgt, nextExpr) <- nextNodes
       return (nextTgt, Concatenate $ expr ++ nextExpr)
 
-type Node = (Int, Token)
-type Edge = (Int, Int, [SimpleExpr])
-type Dag = [Edge]
+type Node t = (Int, Char)
+type Edge t = (Int, Int, [SimpleExpr t])
+type Dag t = [Edge t]
 
-data CreationGraph = CreationGraph
-                   { _nodes :: [Node]
-                   , _edges :: Dag
+data CreationGraph t = CreationGraph
+                   { _nodes :: [Node t]
+                   , _edges :: Dag t
                  } deriving (Show, Eq)
 
-lastNode :: Dag -> Int
+lastNode :: Dag t -> Int
 lastNode dag = maximum (map (\(_,x,_) -> x) dag)
 
 slice :: Int -> Int -> [a] -> [a]
 slice from to = take (to - from) . drop from
 
-graph :: CreationGraph -> Int -> Int -> TknSeq
-graph (CreationGraph nodes _) from to =
-  map snd $ slice from to nodes
-
-creationGraph :: InputExample -> CreationGraph
+creationGraph :: (Eq t) => InputExample t -> CreationGraph t
 creationGraph ex@(InputExample p1 p2 input output) =
   CreationGraph nodes edges
     where
@@ -161,39 +158,50 @@ creationGraph ex@(InputExample p1 p2 input output) =
       edges = [(i1, i2, generateStr ex (slice i1 i2 output))
                 | (i1, node1):rest <- tails nodes, (i2, node2) <- rest]
 
-generateStr :: InputExample -> TknSeq -> [SimpleExpr]
+generateStr :: (Eq t) => InputExample t -> String -> [SimpleExpr t]
 generateStr (InputExample p1 p2 input output) str =
-  [ConstStr str] ++ generateSubstring text str
+  ConstStr str : generateSubstring text str
   where
     (before, (text, after)) = fmap (splitAt (p2 - p1)) (splitAt p1 input)
 
-generateSubstring :: TknSeq -> TknSeq -> [SimpleExpr]
+generateSubstring :: (Eq t) => ParsedTknSeq t -> String -> [SimpleExpr t]
 generateSubstring input output = SubStr <$> y1 <*> y2
   where
     y1 = allMatches input output >>= generatePosition input
     y2 = allMatches input output >>= generatePosition input . (+ length output)
 
 -- the starting positions of all matches of output in input
-allMatches :: (Eq a) => [a] -> [a] -> [Int]
-allMatches input output = map fst $ filter (snd . fmap (isPrefixOf output)) (zip [0..] (tails input))
+allMatches :: (Eq t) => ParsedTknSeq t -> String -> [Int]
+allMatches input output = map fst $ filter (snd . fmap (isPrefixOf output . concat)) indexedStrs
+  where
+    inputStrs = map snd input
+    indexedStrs = zip [0..] (tails inputStrs)
 
-xthMatchIn :: TknSeq -> TknSeq -> TknSeq -> Int -> Maybe Int
+allMatches' :: (Eq t) => QueryTknSeq t -> [t] -> [Int]
+allMatches' input output = map fst $ filter (snd . fmap (`tknMatchPre` output)) indexedStrs
+  where
+    indexedStrs = zip [0..] (tails input)
+
+xthMatchIn :: (Eq t) => [t] -> QueryTknSeq t -> QueryTknSeq t -> Int -> Maybe Int
 xthMatchIn input srchPre srchPost posInInput =
   elemIndex
     (posInInput - length srchPre)
-    (allMatches input (srchPre ++ srchPost))
+    (allMatches' (srchPre ++ srchPost) input)
 
-generatePosition :: TknSeq -> Int -> [PosExpr]
+generatePosition :: (Eq t) => ParsedTknSeq t -> Int -> [PosExpr t]
 generatePosition s k = concatMap createPos combinations
   where
-    (preTxt, postTxt) = splitAt k s
-    preTokens = take 3 $ (reverse . tknTails) preTxt
-    postTokens = take 3 $ (map reverse . reverse . tknTails . reverse) postTxt
-    combinations = filter (\(a, b) -> a /= emptyToken || b /= emptyToken) $ (,) <$> preTokens <*> postTokens
-    matchesInS pr ps k' = (xthMatchIn s pr ps k', length $ allMatches s (pr ++ ps)) -- (cth match, total matches)
+    tkns = map fst s
+    (preTxt, postTxt) = splitAt k (map (generalizeTkn . fst) s)
+    preTokens = take 3 $ (reverse . tails) preTxt
+    postTokens = take 3 $ (map reverse . reverse . tails . reverse) postTxt
+    combinations = filter (\(a, b) -> a /= [] || b /= []) $ (,) <$> preTokens <*> postTokens
+    matchesInS pr ps k' = (xthMatchIn tkns pr ps k', length $ allMatches' (pr ++ ps) tkns) -- (cth match, total matches)
     positions (Just c, c') = [c, -(c' - c)]
     positions (Nothing, _) = []
     createPos (a,b) = map (Pos a b) (positions $ matchesInS a b k)
+
+generalizeTkn = litToken
 
 data VSA a = Leaf a
              | Union (VSA a) (VSA a)

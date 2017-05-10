@@ -2,7 +2,7 @@ module Main where
 
 import Token
 import Graph
-
+{-
 e = emptyToken
 s = SpecialToken
 az = AZToken
@@ -32,7 +32,7 @@ example2 = InputExample 0 5 (tknParseString "0/1/2") (tknParseString "012")
 str2 = creationGraph example2
 
 inters = intersectDag (_edges str1) (_edges str2)
-
+-}
 main :: IO ()
 main = do
   putStrLn "debe"

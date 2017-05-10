@@ -1,52 +1,80 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module Token
-  ( Token(..)
-  , TknSeq
+  ( SimpleToken(..)
+  , ParsedTknSeq
   , emptyToken
-  , tknTails
+  --, tknTails
   , tknParseString
   , tknMatch
   , tknIntersect
+  , ParsedToken(..)
+  , ParsedTknSeq(..)
+  , QueryTknSeq(..)
+  , QueryToken(..)
+  , litToken
+  , tknMatchPre
+  , tknMatchPost
   ) where
 
 import Data.Char
 import Data.List
 
-type TknSeq = [Token]
+--emptyToken :: ParsedTknSeq t
+--emptyToken = []
 
-emptyToken :: [Token]
-emptyToken = []
-
-data Token = AZToken
+data SimpleToken = AZToken
            | NumToken
            | SpecialToken
-           | AllToken
-           -- | EmptyToken
            deriving (Show, Eq)
+
+type ParsedToken t = (t, String)
+type ParsedTknSeq t = [ParsedToken t]
+
+data QueryToken t = AnyOfToken [t]
+                  | AnyToken
+                  deriving (Show, Eq)
+
+type QueryTknSeq t = [QueryToken t]
+
+litToken :: t -> QueryToken t
+litToken t = AnyOfToken [t]
+
+emptyToken :: QueryToken t
+emptyToken = AnyOfToken []
 
 -- like the Data.List tails function
 -- , but instead of empty list returns [EmptyToken] at the end
-tknTails :: [Token] -> [[Token]]
-tknTails l = init (tails l) ++ [emptyToken]
+--tknTails :: [Token] -> [[Token]]
+--tknTails l = init (tails l) ++ [emptyToken]
 
-tknParseChar :: Char -> Token
-tknParseChar x | isAlpha x = AZToken
-tknParseChar x | isDigit x = NumToken
-tknParseChar _ = SpecialToken
+tknParseChar :: Char -> ParsedToken SimpleToken
+tknParseChar x | isAlpha x = (AZToken, [x])
+tknParseChar x | isDigit x = (NumToken, [x])
+tknParseChar x = (SpecialToken, [x])
 
-tknParseString :: String -> [Token]
+tknParseString :: String -> [ParsedToken SimpleToken]
 tknParseString = map tknParseChar
 
-tknMatch :: Token -> Token -> Bool
-tknMatch AZToken AZToken = True
-tknMatch NumToken NumToken = True
-tknMatch SpecialToken SpecialToken = True
-tknMatch AllToken _ = True
+tknMatch :: (Eq t) => t -> QueryToken t -> Bool
+tknMatch x (AnyOfToken l) | x `elem` l = True
+tknMatch _ AnyToken = True
 tknMatch _ _ = False
 
-tknIntersect :: Token -> Token -> Maybe Token
-tknIntersect AllToken x = Just x
-tknIntersect x AllToken = Just x
-tknIntersect a b | a == b = Just a
-tknIntersect _ _ = Nothing
+tknMatchPre :: (Eq t) => QueryTknSeq t -> [t] -> Bool
+tknMatchPre [] _ = True
+tknMatchPre _ [] = False
+tknMatchPre qTkns tkns | length qTkns > length tkns = False
+tknMatchPre qTkns tkns = all (uncurry tknMatch) $ zip tkns qTkns
+
+tknMatchPost :: (Eq t) => QueryTknSeq t -> [t] -> Bool
+tknMatchPost a b = tknMatchPre (reverse a) (reverse b)
+
+tknIntersect :: (Eq t) => QueryToken t -> QueryToken t -> Maybe (QueryToken t)
+tknIntersect AnyToken tkn = Just tkn
+tknIntersect tkn AnyToken = Just tkn
+tknIntersect (AnyOfToken l1) (AnyOfToken l2) =
+  if null inters
+    then Nothing
+    else Just (AnyOfToken inters)
+  where inters = l1 `intersect` l2
