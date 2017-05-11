@@ -177,16 +177,15 @@ allMatches input output = map fst $ filter (snd . fmap (isPrefixOf output . conc
     inputStrs = map snd input
     indexedStrs = zip [0..] (tails inputStrs)
 
-allMatches' :: (Eq t) => QueryTknSeq t -> [t] -> [Int]
-allMatches' input output = map fst $ filter (snd . fmap (`tknMatchPre` output)) indexedStrs
-  where
-    indexedStrs = zip [0..] (tails input)
-
 xthMatchIn :: (Eq t) => [t] -> QueryTknSeq t -> QueryTknSeq t -> Int -> Maybe Int
 xthMatchIn input srchPre srchPost posInInput =
   elemIndex
-    (posInInput - length srchPre)
-    (allMatches' (srchPre ++ srchPost) input)
+    (posInInput)
+    (matchesPrePost srchPre srchPost input)
+
+-- returns (cth match, total matches)
+matchesInS :: (Eq t) => [t] -> QueryTknSeq t -> QueryTknSeq t -> Int -> (Maybe Int, Int)
+matchesInS tkns pr ps k' = (xthMatchIn tkns pr ps k', length $ matchesPrePost pr ps tkns)
 
 generatePosition :: (Eq t) => ParsedTknSeq t -> Int -> [PosExpr t]
 generatePosition s k = concatMap createPos combinations
@@ -196,10 +195,9 @@ generatePosition s k = concatMap createPos combinations
     preTokens = take 3 $ (reverse . tails) preTxt
     postTokens = take 3 $ (map reverse . reverse . tails . reverse) postTxt
     combinations = filter (\(a, b) -> a /= [] || b /= []) $ (,) <$> preTokens <*> postTokens
-    matchesInS pr ps k' = (xthMatchIn tkns pr ps k', length $ allMatches' (pr ++ ps) tkns) -- (cth match, total matches)
     positions (Just c, c') = [c, -(c' - c)]
     positions (Nothing, _) = []
-    createPos (a,b) = map (Pos a b) (positions $ matchesInS a b k)
+    createPos (a,b) = map (Pos a b) (positions $ matchesInS tkns a b k)
 
 generalizeTkn = litToken
 

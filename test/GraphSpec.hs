@@ -27,9 +27,14 @@ spec = do
         ([AZToken, NumToken], [NumToken])
       `shouldBe` False
   describe "matchesPrePost" $ do
-    it "should pass simple case" $ do
+    it "should pass case with empty pref" $ do
       let pref =  []
       let post =  [litToken NumToken, litToken NumToken]
+      let tkns = [AZToken, AZToken, NumToken, NumToken]
+      matchesPrePost pref post tkns `shouldBe` [2]
+    it "should pass simple with empty post" $ do
+      let pref =  [litToken AZToken, litToken AZToken]
+      let post =  []
       let tkns = [AZToken, AZToken, NumToken, NumToken]
       matchesPrePost pref post tkns `shouldBe` [2]
   describe "posIndex" $ do
@@ -60,10 +65,27 @@ spec = do
       let concatExpr = Concatenate [subStrExpr, constExpr]
       let parsedTkns = [(AZToken, "a"), (AZToken, "b"), (NumToken, "1"), (NumToken, "2")]
       evalConcat concatExpr parsedTkns `shouldBe` "ab1cd2"
+  describe "matchesInS" $ do
+    it "should pass simple case" $ do
+      let tkns = [AZToken, AZToken, NumToken, NumToken]
+      let pref = [litToken AZToken]
+      let post = [litToken AZToken]
+      matchesInS tkns pref post 1 `shouldBe` (Just 0, 1)
+    it "should pass case with xth match" $ do
+      let tkns = [AZToken, AZToken, AZToken, AZToken]
+      let pref = [litToken AZToken]
+      let post = [litToken AZToken]
+      matchesInS tkns pref post 2 `shouldBe` (Just 1, 3)
+    it "should pass case with no result" $ do
+      let tkns = [AZToken, AZToken, NumToken, NumToken]
+      let pref = [litToken AZToken]
+      let post = [litToken AZToken]
+      matchesInS tkns pref post 2 `shouldBe` (Nothing, 1)
   describe "generatePosition" $ do
     it "should pass simple case" $ do
       let parsedTkns = [(AZToken, "a"), (AZToken, "b"), (NumToken, "1"), (NumToken, "2")]
       let positions = generatePosition parsedTkns 2
-      forM_ positions (putStrLn . show)
+      -- forM_ positions (putStrLn . show)
       map (`posIndex` map fst parsedTkns) positions `shouldBe` replicate (length positions) (Just 2)
-      --length positions `shouldSatisfy` (== 9)
+       -- 3 * 3 * 2 combinations, -2 to disregard the [] [] combination
+      length positions `shouldSatisfy` (== 16)
