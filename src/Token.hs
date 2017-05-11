@@ -15,6 +15,8 @@ module Token
   , litToken
   , tknMatchPre
   , tknMatchPost
+  , Generalize
+  , generalizeTkn
   ) where
 
 import Data.Char
@@ -27,6 +29,14 @@ data SimpleToken = AZToken
            | NumToken
            | SpecialToken
            deriving (Show, Eq)
+
+class Generalize a where
+  generalizeTkn :: a -> QueryToken a
+
+instance Generalize SimpleToken where
+  --generalizeTkn AZToken = AnyOfToken [AZToken, NumToken]
+  --generalizeTkn NumToken = AnyOfToken [AZToken, NumToken]
+  generalizeTkn x = litToken x
 
 type ParsedToken t = (t, String)
 type ParsedTknSeq t = [ParsedToken t]

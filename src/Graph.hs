@@ -61,7 +61,7 @@ evalSimple (SubStr posE1 posE2) parsed = fmap concat slicedTkns
 
 intersectPos :: (Eq t) => PosExpr t -> PosExpr t -> Maybe (PosExpr t)
 intersectPos (CPos k1) (CPos k2) = guarded (CPos k1) (k1 == k2)
-intersectPos (Pos r1 r2 c) (Pos r1' r2' c') =
+intersectPos (Pos r1 r2 c) (Pos r1' r2' c') | (length r1 == length r1' && length r2 == length r2') =
   Pos <$> t1 <*> t2 <*> guarded c (c == c')
   where
     t1 = zipWithM tknIntersect r1 r1'
@@ -132,8 +132,9 @@ allPaths' lim dag (src, Concatenate expr) = nextNodes' >>= allPaths' lim dag
   where
     nextNodes = filter (\(src', _, _) -> src == src') dag
     nextNodes' = do
-      (_, nextTgt, nextExpr) <- nextNodes
-      return (nextTgt, Concatenate $ expr ++ nextExpr)
+      (_, nextTgt, nextExprs) <- nextNodes
+      nextExpr <- nextExprs
+      return (nextTgt, Concatenate $ expr ++ [nextExpr])
 
 type Node t = (Int, Char)
 type Edge t = (Int, Int, [SimpleExpr t])
@@ -147,24 +148,27 @@ data CreationGraph t = CreationGraph
 lastNode :: Dag t -> Int
 lastNode dag = maximum (map (\(_,x,_) -> x) dag)
 
+transitions :: Dag t -> [(Int, Int, Int)]
+transitions = map (\(a,b,c) -> (a,b,length c))
+
 slice :: Int -> Int -> [a] -> [a]
 slice from to = take (to - from) . drop from
 
-creationGraph :: (Eq t) => InputExample t -> CreationGraph t
+creationGraph :: (Eq t, Generalize t) => InputExample t -> CreationGraph t
 creationGraph ex@(InputExample p1 p2 input output) =
   CreationGraph nodes edges
     where
-      nodes = zip [0..] output
+      nodes = (0, ' ') : (zip [1..] output)
       edges = [(i1, i2, generateStr ex (slice i1 i2 output))
                 | (i1, node1):rest <- tails nodes, (i2, node2) <- rest]
 
-generateStr :: (Eq t) => InputExample t -> String -> [SimpleExpr t]
+generateStr :: (Eq t, Generalize t) => InputExample t -> String -> [SimpleExpr t]
 generateStr (InputExample p1 p2 input output) str =
   ConstStr str : generateSubstring text str
   where
     (before, (text, after)) = fmap (splitAt (p2 - p1)) (splitAt p1 input)
 
-generateSubstring :: (Eq t) => ParsedTknSeq t -> String -> [SimpleExpr t]
+generateSubstring :: (Eq t, Generalize t) => ParsedTknSeq t -> String -> [SimpleExpr t]
 generateSubstring input output = SubStr <$> y1 <*> y2
   where
     y1 = allMatches input output >>= generatePosition input
@@ -187,7 +191,7 @@ xthMatchIn input srchPre srchPost posInInput =
 matchesInS :: (Eq t) => [t] -> QueryTknSeq t -> QueryTknSeq t -> Int -> (Maybe Int, Int)
 matchesInS tkns pr ps k' = (xthMatchIn tkns pr ps k', length $ matchesPrePost pr ps tkns)
 
-generatePosition :: (Eq t) => ParsedTknSeq t -> Int -> [PosExpr t]
+generatePosition :: (Eq t, Generalize t) => ParsedTknSeq t -> Int -> [PosExpr t]
 generatePosition s k = concatMap createPos combinations
   where
     tkns = map fst s
@@ -198,8 +202,6 @@ generatePosition s k = concatMap createPos combinations
     positions (Just c, c') = [c, -(c' - c)]
     positions (Nothing, _) = []
     createPos (a,b) = map (Pos a b) (positions $ matchesInS tkns a b k)
-
-generalizeTkn = litToken
 
 data VSA a = Leaf a
              | Union (VSA a) (VSA a)

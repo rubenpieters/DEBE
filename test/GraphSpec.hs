@@ -89,3 +89,32 @@ spec = do
       map (`posIndex` map fst parsedTkns) positions `shouldBe` replicate (length positions) (Just 2)
        -- 3 * 3 * 2 combinations, -2 to disregard the [] [] combination
       length positions `shouldSatisfy` (== 16)
+  describe "generateSubstring" $ do
+    it "should pass simple case" $ do
+      let parsedTkns = [(NumToken, "0"), (SpecialToken, "-"), (NumToken, "1"), (SpecialToken, "-"), (NumToken, "2")]
+      let substr = "01"
+      let exprs = generateSubstring parsedTkns substr
+      map (`evalSimple` parsedTkns) exprs `shouldBe` replicate (length exprs) (Just substr)
+    it "should pass simple case 2" $ do
+      let parsedTkns = [(NumToken, "0"), (SpecialToken, "-"), (NumToken, "1"), (SpecialToken, "-"), (NumToken, "2")]
+      let substr = "012"
+      let exprs = generateSubstring parsedTkns substr
+      map (`evalSimple` parsedTkns) exprs `shouldBe` replicate (length exprs) (Just substr)
+    it "should pass simple case 3" $ do
+      let parsedTkns = [(SpecialToken, "("), (NumToken, "1"), (NumToken, "2"), (SpecialToken, ")")]
+      let substr = "12"
+      let exprs = generateSubstring parsedTkns substr
+      map (`evalSimple` parsedTkns) exprs `shouldBe` replicate (length exprs) (Just substr)
+  describe "generateStr" $ do
+    it "should pass simple case" $ do
+      let parsedTkns = [(NumToken, "0"), (SpecialToken, "-"), (NumToken, "1"), (SpecialToken, "-"), (NumToken, "2")]
+      let input = InputExample 0 5 (tknParseString "0-1-2") "012"
+      let substr = "01"
+      let exprs = generateStr input substr
+      map (`evalSimple` parsedTkns) exprs `shouldBe` replicate (length exprs) (Just substr)
+    it "should pass simple case 2" $ do
+      let parsedTkns = [(NumToken, "0"), (SpecialToken, "-"), (NumToken, "1"), (SpecialToken, "-"), (NumToken, "2")]
+      let input = InputExample 0 5 (tknParseString "0-1-2") "012"
+      let substr = "012"
+      let exprs = generateStr input substr
+      map (`evalSimple` parsedTkns) exprs `shouldBe` replicate (length exprs) (Just substr)
